@@ -1,3 +1,4 @@
+
 import { ArrowLeft } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { auth } from "@/services/firebase/config";
@@ -15,53 +16,222 @@ function SubmitExpensePage() {
   const [category, setCategory] = useState("");
   const [date, setDate] = useState("");
   const [description, setDescription] = useState("");
-const [receiptFile, setReceiptFile] = useState<File | null>(null);
-const [scanning] = useState(false);
-const [ocrMessage, setOcrMessage] = useState("");
+
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [ocrMessage, setOcrMessage] = useState("");
+
+  // Convert the selected file into a Base64 data URL.
+  const readFileAsDataURL = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          resolve(reader.result);
+        } else {
+          reject(new Error("Unable to read receipt file."));
+        }
+      };
+
+      reader.onerror = () => reject(new Error("Could not read receipt file."));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Map Veryfi categories to Claimora categories.
+  const mapCategory = (value: string): string => {
+    const text = value.toLowerCase();
+
+    if (
+      text.includes("travel") ||
+      text.includes("airline") ||
+      text.includes("transport") ||
+      text.includes("taxi")
+    ) return "Travel";
+
+    if (
+      text.includes("meal") ||
+      text.includes("restaurant") ||
+      text.includes("food") ||
+      text.includes("coffee")
+    ) return "Meals";
+
+    if (
+      text.includes("hotel") ||
+      text.includes("lodging") ||
+      text.includes("accommodation")
+    ) return "Accommodation";
+
+    if (
+      text.includes("office") ||
+      text.includes("stationery") ||
+      text.includes("supplies")
+    ) return "Office";
+
+    if (
+      text.includes("software") ||
+      text.includes("subscription")
+    ) return "Software";
+
+    return "Other";
+  };
+
+  // Scan receipt using our Vercel backend and Veryfi.
+  const handleReceiptUpload = async (file: File) => {
+    setReceiptFile(file);
+    setScanning(true);
+    setOcrMessage("Scanning your receipt with AI...");
+
+    try {
+      if (file.size === 0 || file.size > 20 * 1024 * 1024) {
+        throw new Error("Please select a valid file smaller than 20 MB.");
+      }
+
+      const fileData = await readFileAsDataURL(file);
+
+      const response = await fetch("/api/scan-receipt", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          file_data: fileData,
+          file_name: file.name,
+        }),
+      });
+
+      const responseText = await response.text();
+
+let result;
+
+try {
+  result = JSON.parse(responseText);
+} catch {
+  throw new Error(
+    `API returned an invalid response. Status: ${response.status}. Response: ${responseText.slice(0, 300) || "Empty response"}`
+  );
+}
+
+if (!response.ok) {
+  throw new Error(result.error || "Receipt scanning failed.");
+}
+
+      if (!response.ok) {
+        throw new Error(result.error || "Receipt scanning failed.");
+      }
+
+      const data = result.data;
+
+      // Extract information returned by Veryfi.
+      const vendorName =
+        data.vendor?.name ||
+        data.vendor?.raw_name ||
+        data.vendor_name ||
+        "";
+
+      const total = data.total ?? data.total_amount;
+
+      const expenseDate =
+        data.date ||
+        data.transaction_date ||
+        data.created_date ||
+        "";
+
+      const detectedCategory =
+        data.category ||
+        data.vendor?.category ||
+        "";
+
+      // Automatically fill the form.
+      if (vendorName) {
+        setTitle(vendorName);
+      }
+
+      if (total !== undefined && total !== null) {
+        setAmount(String(total));
+      }
+
+      if (expenseDate) {
+        const dateValue = String(expenseDate).slice(0, 10);
+
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+          setDate(dateValue);
+        }
+      }
+
+      if (detectedCategory) {
+        setCategory(mapCategory(String(detectedCategory)));
+      }
+
+      setOcrMessage(
+        "Receipt scanned successfully! Please verify the extracted details."
+      );
+
+    } catch (error) {
+      console.error("Veryfi scanning error:", error);
+
+      setOcrMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to scan receipt. Please try again."
+      );
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  // Save expense to Firestore.
   const handleSubmit = async (
-  event: FormEvent<HTMLFormElement>
-) => {
-  event.preventDefault();
+    event: FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault();
 
-  console.log("SUBMIT BUTTON CLICKED");
+    try {
+      const user = auth.currentUser;
 
-  try {
-    const user = auth.currentUser;
+      if (!user) {
+        throw new Error("User is not logged in.");
+      }
 
-if (!user) {
-  throw new Error("User is not logged in.");
-}
+      const profile = await getUserProfile(user.uid);
 
-const profile = await getUserProfile(user.uid);
+      if (!profile) {
+        throw new Error("User profile not found.");
+      }
 
-if (!profile) {
-  throw new Error("User profile not found.");
-}
+      const expenseId = await addExpense({
+        title,
+        amount: Number(amount),
+        category,
+        date,
+        description,
+        companyId: profile.companyId,
+        userId: user.uid,
+        userName: profile.name,
+      });
 
-const expenseId = await addExpense({
-  title,
-  amount: Number(amount),
-  category,
-  date,
-  description,
-  companyId: profile.companyId,
-  userId: user.uid,
-  userName: profile.name,
-});
+      console.log("Expense saved to Firestore:", expenseId);
+      alert("Expense submitted successfully!");
 
-    console.log("Expense saved to Firestore:", expenseId);
+    } catch (error) {
+      console.error("Error saving expense:", error);
 
-  } catch (error) {
-    console.error("Error saving expense:", error);
-  }
-};
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Unable to submit expense."
+      );
+    }
+  };
 
   return (
     <AppLayout>
       <div className="mx-auto max-w-3xl space-y-6 p-8">
+
         {/* Header */}
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon">
+          <Button variant="ghost" size="icon" type="button">
             <ArrowLeft className="h-5 w-5" />
           </Button>
 
@@ -87,9 +257,7 @@ const expenseId = await addExpense({
 
               {/* Expense Title */}
               <div className="space-y-2">
-                <Label htmlFor="title">
-                  Expense Title
-                </Label>
+                <Label htmlFor="title">Expense Title</Label>
 
                 <Input
                   id="title"
@@ -104,9 +272,7 @@ const expenseId = await addExpense({
               <div className="grid gap-5 sm:grid-cols-2">
 
                 <div className="space-y-2">
-                  <Label htmlFor="amount">
-                    Amount
-                  </Label>
+                  <Label htmlFor="amount">Amount</Label>
 
                   <Input
                     id="amount"
@@ -121,9 +287,7 @@ const expenseId = await addExpense({
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="date">
-                    Expense Date
-                  </Label>
+                  <Label htmlFor="date">Expense Date</Label>
 
                   <Input
                     id="date"
@@ -138,9 +302,7 @@ const expenseId = await addExpense({
 
               {/* Category */}
               <div className="space-y-2">
-                <Label htmlFor="category">
-                  Category
-                </Label>
+                <Label htmlFor="category">Category</Label>
 
                 <select
                   id="category"
@@ -149,41 +311,19 @@ const expenseId = await addExpense({
                   required
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                 >
-                  <option value="">
-                    Select a category
-                  </option>
-
-                  <option value="Travel">
-                    Travel
-                  </option>
-
-                  <option value="Meals">
-                    Meals
-                  </option>
-
-                  <option value="Accommodation">
-                    Accommodation
-                  </option>
-
-                  <option value="Office">
-                    Office Supplies
-                  </option>
-
-                  <option value="Software">
-                    Software
-                  </option>
-
-                  <option value="Other">
-                    Other
-                  </option>
+                  <option value="">Select a category</option>
+                  <option value="Travel">Travel</option>
+                  <option value="Meals">Meals</option>
+                  <option value="Accommodation">Accommodation</option>
+                  <option value="Office">Office Supplies</option>
+                  <option value="Software">Software</option>
+                  <option value="Other">Other</option>
                 </select>
               </div>
 
               {/* Description */}
               <div className="space-y-2">
-                <Label htmlFor="description">
-                  Description
-                </Label>
+                <Label htmlFor="description">Description</Label>
 
                 <textarea
                   id="description"
@@ -195,56 +335,52 @@ const expenseId = await addExpense({
                 />
               </div>
 
-{/* Receipt Upload */}
+              {/* Receipt Upload */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium">
+                  Receipt / Bill
+                </label>
 
-<div className="space-y-3">
-  <label className="block text-sm font-medium">
-    Receipt / Bill
-  </label>
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  disabled={scanning}
+                  className="w-full rounded-lg border p-3 text-sm"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
 
-  <input
-    type="file"
-    accept="image/*,.pdf"
-    className="w-full rounded-lg border p-3 text-sm"
-    onChange={(event) => {
-      const file = event.target.files?.[0];
+                    if (file) {
+                      void handleReceiptUpload(file);
+                    }
+                  }}
+                />
 
-      if (!file) return;
+                {scanning && (
+                  <p className="text-sm text-blue-600">
+                    AI is scanning your receipt...
+                  </p>
+                )}
 
-      setReceiptFile(file);
-      setOcrMessage("Receipt selected. AI scanning will be available shortly.");
-    }}
-  />
+                {ocrMessage && (
+                  <p className="text-sm text-gray-600">
+                    {ocrMessage}
+                  </p>
+                )}
 
-  {scanning && (
-    <p className="text-sm text-blue-600">
-      AI is scanning your receipt...
-    </p>
-  )}
-
-  {ocrMessage && (
-    <p className="text-sm text-gray-600">
-      {ocrMessage}
-    </p>
-  )}
-
-  {receiptFile && (
-    <p className="text-xs text-gray-500">
-      Selected: {receiptFile.name}
-    </p>
-  )}
-</div>
+                {receiptFile && (
+                  <p className="text-xs text-gray-500">
+                    Selected: {receiptFile.name}
+                  </p>
+                )}
+              </div>
 
               {/* Buttons */}
               <div className="flex justify-end gap-3 border-t pt-6">
-                <Button
-                  type="button"
-                  variant="outline"
-                >
+                <Button type="button" variant="outline">
                   Cancel
                 </Button>
 
-                <Button type="submit">
+                <Button type="submit" disabled={scanning}>
                   Submit Expense
                 </Button>
               </div>

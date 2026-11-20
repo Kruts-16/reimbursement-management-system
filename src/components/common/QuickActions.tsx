@@ -1,3 +1,4 @@
+
 import {
   ArrowRight,
   Plus,
@@ -8,6 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 function QuickActions() {
+  const handleSubmitExpense = () => {
+    window.location.href = "/expenses";
+  };
+
+  const handleViewExpenses = () => {
+    window.location.href = "/expenses";
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -21,7 +30,10 @@ function QuickActions() {
       </CardHeader>
 
       <CardContent className="space-y-3">
-        <Button className="w-full justify-between">
+        <Button
+          onClick={handleSubmitExpense}
+          className="w-full justify-between"
+        >
           <span className="flex items-center gap-2">
             <Plus className="h-4 w-4" />
             Submit Expense
@@ -31,6 +43,7 @@ function QuickActions() {
         </Button>
 
         <Button
+          onClick={handleViewExpenses}
           variant="outline"
           className="w-full justify-between"
         >
