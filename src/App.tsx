@@ -14,6 +14,7 @@ import ExpensesPage from "@/pages/admin/ExpensesPage";
 import AppLayout from "@/components/layout/AppLayout";
 import ApprovalsPage from "@/pages/admin/ApprovalsPage";
 import EmployeeSignupPage from "@/pages/auth/EmployeeSignupPage";
+import ManagerSignupPage from "@/pages/auth/ManagerSignupPage";
 
 function App() {
   const [loading, setLoading] = useState(true);
@@ -54,6 +55,9 @@ function App() {
   if (path === "/register") {
     return <RegisterCompanyPage />;
   }
+  if (path === "/manager-signup") {
+  return <ManagerSignupPage />;
+}
 
   if (loading) {
     return (
@@ -68,6 +72,30 @@ function App() {
   if (!role) {
     return <LoginPage />;
   }
+  if (role === "pending_manager") {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
+      <div className="max-w-md rounded-xl border bg-white p-8 text-center shadow-sm">
+        <h1 className="text-2xl font-semibold">
+          Registration Submitted!
+        </h1>
+
+        <p className="mt-3 text-gray-500">
+          Your manager account is awaiting admin approval.
+          You will be able to access the manager dashboard
+          once your request is approved.
+        </p>
+
+        <button
+          onClick={() => window.location.href = "/login"}
+          className="mt-6 rounded-lg bg-black px-5 py-2 text-white"
+        >
+          Back to Login
+        </button>
+      </div>
+    </div>
+  );
+}
 
   /* Dashboard */
   if (path === "/dashboard" || path === "/") {

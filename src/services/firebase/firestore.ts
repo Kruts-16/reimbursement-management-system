@@ -415,3 +415,22 @@ export async function assignEmployeeToGroup(
     groupId,
   });
 }
+
+export async function createManagerRequest(
+  userId: string,
+  user: {
+    name: string;
+    email: string;
+    companyId: string;
+  }
+) {
+  await setDoc(doc(db, "users", userId), {
+    name: user.name,
+    email: user.email,
+    companyId: user.companyId,
+    role: "pending_manager",
+    requestedRole: "manager",
+    accountStatus: "pending",
+    createdAt: serverTimestamp(),
+  });
+}
