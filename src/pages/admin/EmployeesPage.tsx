@@ -405,10 +405,10 @@ function EmployeesPage() {
                   <option value="">Select Manager</option>
 
                   {availableManagers.map((manager) => (
-                    <option key={manager.id} value={manager.id}>
-                      {manager.name}
-                    </option>
-                  ))}
+  <option key={manager.id} value={manager.id}>
+    {manager.name} ({manager.email})
+  </option>
+))}
                 </select>
 
                 {availableManagers.length === 0 && (
