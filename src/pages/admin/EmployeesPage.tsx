@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from "react";
-import { Plus, Users } from "lucide-react";
+import { Plus, Users, CheckCircle } from "lucide-react";
 
 import AppLayout from "@/components/layout/AppLayout";
 import { auth } from "@/services/firebase/config";
@@ -13,6 +13,7 @@ import {
   createGroup,
   getCompanyGroups,
   assignEmployeeToGroup,
+  approveManagerRequest,
 } from "@/services/firebase/firestore";
 
 import {
@@ -32,6 +33,7 @@ interface Employee {
   email: string;
   role: string;
   groupId?: string;
+  accountStatus?: string;
 }
 
 interface EmployeeGroup {
@@ -60,54 +62,49 @@ function EmployeesPage() {
   const [loadingEmployees, setLoadingEmployees] = useState(true);
   const [message, setMessage] = useState("");
 
-  
-async function loadEmployees() {
-  try {
-    const user = auth.currentUser;
-
-    if (!user) return;
-
-    const profile = await getUserProfile(user.uid);
-
-    if (!profile) return;
-
-    setCompanyId(profile.companyId);
-
-    // Load employees independently
-    const employeeData = await getCompanyEmployees(
-      profile.companyId
-    );
-
-    setEmployees(employeeData as Employee[]);
-
-    // Load groups independently
+  async function loadEmployees() {
     try {
-      const groupData = await getCompanyGroups(profile.companyId);
-      setGroups(groupData as EmployeeGroup[]);
-    } catch (error) {
-      console.error("Error loading groups:", error);
-      setGroups([]);
-    }
+      const user = auth.currentUser;
 
-    // Load signup code independently
-    try {
-      const code = await getOrCreateCompanyCode(profile.companyId);
-      setCompanyCode(code);
-    } catch (error) {
-      console.error("Error loading company code:", error);
-    }
+      if (!user) return;
 
-  } catch (error) {
-    console.error("Error loading employees:", error);
-  } finally {
-    setLoadingEmployees(false);
+      const profile = await getUserProfile(user.uid);
+
+      if (!profile) return;
+
+      setCompanyId(profile.companyId);
+
+      const employeeData = await getCompanyEmployees(profile.companyId);
+      setEmployees(employeeData as Employee[]);
+
+      try {
+        const groupData = await getCompanyGroups(profile.companyId);
+        setGroups(groupData as EmployeeGroup[]);
+      } catch (error) {
+        console.error("Error loading groups:", error);
+        setGroups([]);
+      }
+
+      try {
+        const code = await getOrCreateCompanyCode(profile.companyId);
+        setCompanyCode(code);
+      } catch (error) {
+        console.error("Error loading company code:", error);
+      }
+    } catch (error) {
+      console.error("Error loading employees:", error);
+    } finally {
+      setLoadingEmployees(false);
+    }
   }
-}
-
 
   useEffect(() => {
     loadEmployees();
   }, []);
+
+  const pendingManagers = employees.filter(
+    (employee) => employee.role === "pending_manager"
+  );
 
   const managers = employees.filter(
     (employee) => employee.role === "manager"
@@ -122,6 +119,29 @@ async function loadEmployees() {
     (employee) =>
       employee.role === "employee" && !employee.groupId
   );
+
+  async function handleApproveManager(managerId: string) {
+    try {
+      setLoading(true);
+      setMessage("");
+
+      await approveManagerRequest(managerId);
+
+      setMessage("Manager approved successfully!");
+
+      await loadEmployees();
+    } catch (error) {
+      console.error("Manager approval error:", error);
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not approve manager."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleCreateEmployee(
     event: React.FormEvent<HTMLFormElement>
@@ -215,8 +235,10 @@ async function loadEmployees() {
   }
 
   function getManagerName(managerId: string) {
-    return employees.find((employee) => employee.id === managerId)?.name
-      || "Manager not found";
+    return (
+      employees.find((employee) => employee.id === managerId)?.name ||
+      "Manager not found"
+    );
   }
 
   return (
@@ -257,6 +279,54 @@ async function loadEmployees() {
           </p>
         </div>
 
+        {/* Pending Manager Requests */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5" />
+              Pending Manager Requests
+            </CardTitle>
+          </CardHeader>
+
+          <CardContent>
+            {pendingManagers.length === 0 ? (
+              <p className="py-6 text-center text-sm text-gray-500">
+                No pending manager requests.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {pendingManagers.map((manager) => (
+                  <div
+                    key={manager.id}
+                    className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div>
+                      <p className="font-semibold text-gray-900">
+                        {manager.name}
+                      </p>
+
+                      <p className="text-sm text-gray-500">
+                        {manager.email}
+                      </p>
+
+                      <span className="mt-2 inline-block rounded-full bg-yellow-100 px-3 py-1 text-xs font-medium text-yellow-700">
+                        Awaiting approval
+                      </span>
+                    </div>
+
+                    <Button
+                      disabled={loading}
+                      onClick={() => handleApproveManager(manager.id)}
+                    >
+                      {loading ? "Approving..." : "Approve Manager"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Add Employee */}
         <Card>
           <CardHeader>
@@ -265,7 +335,6 @@ async function loadEmployees() {
 
           <CardContent>
             <form onSubmit={handleCreateEmployee} className="space-y-4">
-
               <div className="space-y-2">
                 <Label>Full Name</Label>
                 <Input
@@ -315,7 +384,6 @@ async function loadEmployees() {
 
           <CardContent>
             <form onSubmit={handleCreateGroup} className="space-y-4">
-
               <div className="space-y-2">
                 <Label>Group Name</Label>
                 <Input
@@ -345,7 +413,7 @@ async function loadEmployees() {
 
                 {availableManagers.length === 0 && (
                   <p className="text-xs text-gray-500">
-                    Add a manager first, or all managers are already assigned.
+                    No unassigned managers available.
                   </p>
                 )}
               </div>
@@ -368,7 +436,6 @@ async function loadEmployees() {
 
           <CardContent>
             <form onSubmit={handleAssignEmployee} className="space-y-4">
-
               <div className="space-y-2">
                 <Label>Select Employee</Label>
                 <select

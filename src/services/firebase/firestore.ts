@@ -434,3 +434,24 @@ export async function createManagerRequest(
     createdAt: serverTimestamp(),
   });
 }
+
+export async function approveManagerRequest(managerId: string) {
+  const managerRef = doc(db, "users", managerId);
+  const managerSnap = await getDoc(managerRef);
+
+  if (!managerSnap.exists()) {
+    throw new Error("Manager request not found.");
+  }
+
+  const manager = managerSnap.data();
+
+  if (manager.role !== "pending_manager") {
+    throw new Error("This account is not a pending manager request.");
+  }
+
+  await updateDoc(managerRef, {
+    role: "manager",
+    accountStatus: "approved",
+    approvedAt: serverTimestamp(),
+  });
+}
