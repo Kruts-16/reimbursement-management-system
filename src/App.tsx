@@ -59,6 +59,10 @@ function App() {
   return <ManagerSignupPage />;
 }
 
+if (path === "/employee-signup") {
+  return <EmployeeSignupPage />;
+}
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -141,9 +145,6 @@ if (path === "/approvals") {
       </AppLayout>
     );
   }
-if (path === "/employee-signup") {
-  return <EmployeeSignupPage />;
-}
 
   /* Fallback */
   if (role === "admin") {
