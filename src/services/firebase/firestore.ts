@@ -9,6 +9,7 @@ import {
   query,
   where,
   updateDoc,
+  
 } from "firebase/firestore";
 import { auth } from "./config";
 import { db } from "./config";
@@ -453,5 +454,61 @@ export async function approveManagerRequest(managerId: string) {
     role: "manager",
     accountStatus: "approved",
     approvedAt: serverTimestamp(),
+  });
+}
+
+export async function reassignGroupManager(
+  groupId: string,
+  newManagerId: string
+) {
+  const user = auth.currentUser;
+
+  if (!user) {
+    throw new Error("Please log in first.");
+  }
+
+  const adminProfile = await getUserProfile(user.uid);
+
+  if (!adminProfile || adminProfile.role !== "admin") {
+    throw new Error("Only an admin can reassign a group manager.");
+  }
+
+  const groupRef = doc(db, "groups", groupId);
+  const groupSnap = await getDoc(groupRef);
+
+  if (!groupSnap.exists()) {
+    throw new Error("Group not found.");
+  }
+
+  const group = groupSnap.data();
+
+  if (group.companyId !== adminProfile.companyId) {
+    throw new Error("This group does not belong to your company.");
+  }
+
+  const managerProfile = await getUserProfile(newManagerId);
+
+  if (
+    !managerProfile ||
+    managerProfile.role !== "manager" ||
+    managerProfile.companyId !== adminProfile.companyId
+  ) {
+    throw new Error("Please select a valid manager from your company.");
+  }
+
+  const groups = await getCompanyGroups(adminProfile.companyId);
+
+  const alreadyManagingAnotherGroup = groups.some(
+    (item: any) =>
+      item.id !== groupId && item.managerId === newManagerId
+  );
+
+  if (alreadyManagingAnotherGroup) {
+    throw new Error("This manager is already assigned to another group.");
+  }
+
+  await updateDoc(groupRef, {
+    managerId: newManagerId,
+    updatedAt: serverTimestamp(),
   });
 }

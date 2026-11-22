@@ -14,6 +14,7 @@ import {
   getCompanyGroups,
   assignEmployeeToGroup,
   approveManagerRequest,
+  reassignGroupManager,
 } from "@/services/firebase/firestore";
 
 import {
@@ -62,6 +63,10 @@ function EmployeesPage() {
   const [loadingEmployees, setLoadingEmployees] = useState(true);
   const [message, setMessage] = useState("");
 
+  const [selectedManagers, setSelectedManagers] = useState<
+    Record<string, string>
+  >({});
+
   async function loadEmployees() {
     try {
       const user = auth.currentUser;
@@ -77,20 +82,11 @@ function EmployeesPage() {
       const employeeData = await getCompanyEmployees(profile.companyId);
       setEmployees(employeeData as Employee[]);
 
-      try {
-        const groupData = await getCompanyGroups(profile.companyId);
-        setGroups(groupData as EmployeeGroup[]);
-      } catch (error) {
-        console.error("Error loading groups:", error);
-        setGroups([]);
-      }
+      const groupData = await getCompanyGroups(profile.companyId);
+      setGroups(groupData as EmployeeGroup[]);
 
-      try {
-        const code = await getOrCreateCompanyCode(profile.companyId);
-        setCompanyCode(code);
-      } catch (error) {
-        console.error("Error loading company code:", error);
-      }
+      const code = await getOrCreateCompanyCode(profile.companyId);
+      setCompanyCode(code);
     } catch (error) {
       console.error("Error loading employees:", error);
     } finally {
@@ -200,7 +196,11 @@ function EmployeesPage() {
       await loadEmployees();
     } catch (error) {
       console.error(error);
-      setMessage("Could not create group. Please try again.");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not create group. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -228,17 +228,58 @@ function EmployeesPage() {
       await loadEmployees();
     } catch (error) {
       console.error(error);
-      setMessage("Could not assign employee. Please try again.");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not assign employee. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleReassignManager(groupId: string) {
+    try {
+      const newManagerId = selectedManagers[groupId];
+
+      if (!newManagerId) {
+        throw new Error("Please select a manager.");
+      }
+
+      setLoading(true);
+      setMessage("");
+
+      await reassignGroupManager(groupId, newManagerId);
+
+      setMessage("Group manager reassigned successfully!");
+
+      await loadEmployees();
+
+      setSelectedManagers((previous) => ({
+        ...previous,
+        [groupId]: newManagerId,
+      }));
+    } catch (error) {
+      console.error("Manager reassignment error:", error);
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not reassign manager."
+      );
     } finally {
       setLoading(false);
     }
   }
 
   function getManagerName(managerId: string) {
-    return (
-      employees.find((employee) => employee.id === managerId)?.name ||
-      "Manager not found"
+    const manager = employees.find(
+      (employee) => employee.id === managerId
     );
+
+    return manager
+      ? `${manager.name} (${manager.email})`
+      : "Manager not found";
   }
 
   return (
@@ -259,6 +300,7 @@ function EmployeesPage() {
             </span>
 
             <button
+              type="button"
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() => navigator.clipboard.writeText(companyCode)}
               disabled={!companyCode}
@@ -405,10 +447,10 @@ function EmployeesPage() {
                   <option value="">Select Manager</option>
 
                   {availableManagers.map((manager) => (
-  <option key={manager.id} value={manager.id}>
-    {manager.name} ({manager.email})
-  </option>
-))}
+                    <option key={manager.id} value={manager.id}>
+                      {manager.name} ({manager.email})
+                    </option>
+                  ))}
                 </select>
 
                 {availableManagers.length === 0 && (
@@ -448,7 +490,7 @@ function EmployeesPage() {
 
                   {availableEmployees.map((employee) => (
                     <option key={employee.id} value={employee.id}>
-                      {employee.name}
+                      {employee.name} ({employee.email})
                     </option>
                   ))}
                 </select>
@@ -486,6 +528,7 @@ function EmployeesPage() {
           </CardContent>
         </Card>
 
+        {/* Messages */}
         {message && (
           <div className="rounded-lg border bg-gray-50 p-3 text-sm text-gray-700">
             {message}
@@ -505,23 +548,67 @@ function EmployeesPage() {
               </p>
             ) : (
               <div className="space-y-3">
-                {groups.map((group) => (
-                  <div key={group.id} className="rounded-lg border p-4">
-                    <h3 className="font-semibold">{group.name}</h3>
+                {groups.map((group) => {
+                  const eligibleManagers = managers.filter(
+                    (manager) =>
+                      !groups.some(
+                        (otherGroup) =>
+                          otherGroup.id !== group.id &&
+                          otherGroup.managerId === manager.id
+                      )
+                  );
 
-                    <p className="mt-1 text-sm text-gray-500">
-                      Manager: {getManagerName(group.managerId)}
-                    </p>
+                  return (
+                    <div key={group.id} className="rounded-lg border p-4">
+                      <h3 className="font-semibold">{group.name}</h3>
 
-                    <p className="mt-2 text-sm text-gray-600">
-                      Employees:{" "}
-                      {employees
-                        .filter((employee) => employee.groupId === group.id)
-                        .map((employee) => employee.name)
-                        .join(", ") || "No employees assigned"}
-                    </p>
-                  </div>
-                ))}
+                      <p className="mt-1 text-sm text-gray-500">
+                        Current Manager: {getManagerName(group.managerId)}
+                      </p>
+
+                      <p className="mt-2 text-sm text-gray-600">
+                        Employees:{" "}
+                        {employees
+                          .filter((employee) => employee.groupId === group.id)
+                          .map((employee) => employee.name)
+                          .join(", ") || "No employees assigned"}
+                      </p>
+
+                      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                        <select
+                          value={
+                            selectedManagers[group.id] || group.managerId
+                          }
+                          onChange={(e) =>
+                            setSelectedManagers((previous) => ({
+                              ...previous,
+                              [group.id]: e.target.value,
+                            }))
+                          }
+                          className="h-10 rounded-md border px-3 text-sm"
+                        >
+                          {eligibleManagers.map((manager) => (
+                            <option key={manager.id} value={manager.id}>
+                              {manager.name} ({manager.email})
+                            </option>
+                          ))}
+                        </select>
+
+                        <Button
+                          type="button"
+                          disabled={
+                            loading ||
+                            !selectedManagers[group.id] ||
+                            selectedManagers[group.id] === group.managerId
+                          }
+                          onClick={() => handleReassignManager(group.id)}
+                        >
+                          Change Manager
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </CardContent>
