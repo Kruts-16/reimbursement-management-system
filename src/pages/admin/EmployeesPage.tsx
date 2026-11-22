@@ -60,33 +60,50 @@ function EmployeesPage() {
   const [loadingEmployees, setLoadingEmployees] = useState(true);
   const [message, setMessage] = useState("");
 
-  async function loadEmployees() {
+  
+async function loadEmployees() {
+  try {
+    const user = auth.currentUser;
+
+    if (!user) return;
+
+    const profile = await getUserProfile(user.uid);
+
+    if (!profile) return;
+
+    setCompanyId(profile.companyId);
+
+    // Load employees independently
+    const employeeData = await getCompanyEmployees(
+      profile.companyId
+    );
+
+    setEmployees(employeeData as Employee[]);
+
+    // Load groups independently
     try {
-      const user = auth.currentUser;
-
-      if (!user) return;
-
-      const profile = await getUserProfile(user.uid);
-
-      if (!profile) return;
-
-      setCompanyId(profile.companyId);
-
-      const [employeeData, groupData, code] = await Promise.all([
-        getCompanyEmployees(profile.companyId),
-        getCompanyGroups(profile.companyId),
-        getOrCreateCompanyCode(profile.companyId),
-      ]);
-
-      setEmployees(employeeData as Employee[]);
+      const groupData = await getCompanyGroups(profile.companyId);
       setGroups(groupData as EmployeeGroup[]);
+    } catch (error) {
+      console.error("Error loading groups:", error);
+      setGroups([]);
+    }
+
+    // Load signup code independently
+    try {
+      const code = await getOrCreateCompanyCode(profile.companyId);
       setCompanyCode(code);
     } catch (error) {
-      console.error("Error loading employees:", error);
-    } finally {
-      setLoadingEmployees(false);
+      console.error("Error loading company code:", error);
     }
+
+  } catch (error) {
+    console.error("Error loading employees:", error);
+  } finally {
+    setLoadingEmployees(false);
   }
+}
+
 
   useEffect(() => {
     loadEmployees();
