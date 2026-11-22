@@ -1,5 +1,6 @@
+
 import { useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 
 import { auth } from "@/services/firebase/config";
 import { getUserProfile } from "@/services/firebase/firestore";
@@ -37,12 +38,12 @@ function App() {
 
           if (profile) {
             setRole(profile.role);
+          } else {
+            setRole(null);
           }
         } catch (error) {
-          console.error(
-            "Error loading user profile:",
-            error
-          );
+          console.error("Error loading user profile:", error);
+          setRole(null);
         } finally {
           setLoading(false);
         }
@@ -52,56 +53,72 @@ function App() {
     return () => unsubscribe();
   }, []);
 
+  // PUBLIC ROUTES
   if (path === "/register") {
     return <RegisterCompanyPage />;
   }
+
   if (path === "/manager-signup") {
-  return <ManagerSignupPage />;
-}
+    return <ManagerSignupPage />;
+  }
 
-if (path === "/employee-signup") {
-  return <EmployeeSignupPage />;
-}
+  if (path === "/employee-signup") {
+    return <EmployeeSignupPage />;
+  }
 
+  if (path === "/login") {
+    return <LoginPage />;
+  }
+
+  // AUTHENTICATION LOADING
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-gray-500">
-          Loading Claimora...
-        </p>
+        <p className="text-gray-500">Loading Claimora...</p>
       </div>
     );
   }
 
+  // NOT LOGGED IN
   if (!role) {
     return <LoginPage />;
   }
+
+  // PENDING MANAGER
   if (role === "pending_manager") {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
-      <div className="max-w-md rounded-xl border bg-white p-8 text-center shadow-sm">
-        <h1 className="text-2xl font-semibold">
-          Registration Submitted!
-        </h1>
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
+        <div className="w-full max-w-md rounded-xl border bg-white p-8 text-center shadow-sm">
+          <h1 className="text-2xl font-semibold">
+            Registration Submitted!
+          </h1>
 
-        <p className="mt-3 text-gray-500">
-          Your manager account is awaiting admin approval.
-          You will be able to access the manager dashboard
-          once your request is approved.
-        </p>
+          <p className="mt-3 text-gray-500">
+            Your manager account is awaiting admin approval.
+            You will be able to access the manager dashboard
+            once your request is approved.
+          </p>
 
-        <button
-          onClick={() => window.location.href = "/login"}
-          className="mt-6 rounded-lg bg-black px-5 py-2 text-white"
-        >
-          Back to Login
-        </button>
+          <button
+            onClick={async () => {
+              try {
+                await signOut(auth);
+                setRole(null);
+                window.location.replace("/login");
+              } catch (error) {
+                console.error("Logout error:", error);
+              }
+            }}
+            className="mt-6 rounded-lg bg-black px-5 py-2 text-white"
+          >
+            Back to Login
+          </button>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-  /* Dashboard */
+  // DASHBOARD
   if (path === "/dashboard" || path === "/") {
     if (role === "admin") {
       return <AdminDashboard />;
@@ -110,26 +127,30 @@ if (path === "/employee-signup") {
     return <EmployeeDashboard />;
   }
 
-  /* Employees */
+  // EMPLOYEES
   if (path === "/employees" && role === "admin") {
     return <EmployeesPage />;
   }
 
-  /* Expenses */
+  // EXPENSES
   if (path === "/expenses") {
-  if (role === "admin") {
-    return <ExpensesPage />;
+    if (role === "admin") {
+      return <ExpensesPage />;
+    }
+
+    return <SubmitExpensePage />;
   }
 
-  return <SubmitExpensePage />;
-}
+  // APPROVALS
+  if (path === "/approvals") {
+    if (role === "admin" || role === "manager") {
+      return <ApprovalsPage />;
+    }
 
-  /* Approvals */
-if (path === "/approvals") {
-  return <ApprovalsPage />;
-}
+    return <EmployeeDashboard />;
+  }
 
-  /* Reports */
+  // REPORTS
   if (path === "/reports") {
     return (
       <AppLayout>
@@ -146,7 +167,7 @@ if (path === "/approvals") {
     );
   }
 
-  /* Fallback */
+  // FALLBACK
   if (role === "admin") {
     return <AdminDashboard />;
   }
