@@ -269,3 +269,41 @@ export async function getCompanyBySignupCode(code: string) {
     ...companyDoc.data(),
   };
 }
+
+export async function createGroup(
+  name: string,
+  companyId: string,
+  managerId: string
+) {
+  const groupRef = await addDoc(collection(db, "groups"), {
+    name,
+    companyId,
+    managerId,
+    createdAt: serverTimestamp(),
+  });
+
+  return groupRef.id;
+}
+
+export async function getCompanyGroups(companyId: string) {
+  const groupsQuery = query(
+    collection(db, "groups"),
+    where("companyId", "==", companyId)
+  );
+
+  const snapshot = await getDocs(groupsQuery);
+
+  return snapshot.docs.map((groupDoc) => ({
+    id: groupDoc.id,
+    ...groupDoc.data(),
+  }));
+}
+
+export async function assignEmployeeToGroup(
+  employeeId: string,
+  groupId: string
+) {
+  await updateDoc(doc(db, "users", employeeId), {
+    groupId,
+  });
+}
