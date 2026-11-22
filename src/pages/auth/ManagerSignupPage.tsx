@@ -20,56 +20,63 @@ export default function ManagerSignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleSignup(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading(true);
-    setError("");
+  
+async function handleSignup(event: FormEvent<HTMLFormElement>) {
+  event.preventDefault();
+  setLoading(true);
+  setError("");
 
-    let createdUser = false;
+  let createdUser = false;
 
-    try {
-      const company = await getCompanyBySignupCode(companyCode);
+  try {
+    // First create the Firebase Authentication account
+    const credential = await createUserWithEmailAndPassword(
+      auth,
+      email.trim(),
+      password
+    );
 
-      if (!company) {
-        throw new Error("Invalid company signup code.");
-      }
+    createdUser = true;
 
-      const credential = await createUserWithEmailAndPassword(
-        auth,
-        email.trim(),
-        password
-      );
+    // Now look up the company signup code
+    const company = await getCompanyBySignupCode(companyCode);
 
-      createdUser = true;
-
-      await createManagerRequest(credential.user.uid, {
-        name: name.trim(),
-        email: email.trim(),
-        companyId: company.id,
-      });
-
-      window.location.href = "/manager-pending";
-
-    } catch (err) {
-      console.error("Manager signup error:", err);
-
-      if (createdUser && auth.currentUser) {
-        try {
-          await deleteUser(auth.currentUser);
-        } catch (deleteError) {
-          console.error("Account cleanup error:", deleteError);
-        }
-      }
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Signup failed. Please try again."
-      );
-    } finally {
-      setLoading(false);
+    if (!company) {
+      await deleteUser(credential.user);
+      createdUser = false;
+      throw new Error("Invalid company signup code.");
     }
+
+    // Create a pending manager profile
+    await createManagerRequest(credential.user.uid, {
+      name: name.trim(),
+      email: email.trim(),
+      companyId: company.id,
+    });
+
+    window.location.href = "/manager-pending";
+
+  } catch (err) {
+    console.error("Manager signup error:", err);
+
+    if (createdUser && auth.currentUser) {
+      try {
+        await deleteUser(auth.currentUser);
+      } catch (deleteError) {
+        console.error("Account cleanup error:", deleteError);
+      }
+    }
+
+    setError(
+      err instanceof Error
+        ? err.message
+        : "Signup failed. Please try again."
+    );
+  } finally {
+    setLoading(false);
   }
+}
+
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
