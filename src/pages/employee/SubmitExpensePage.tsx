@@ -200,16 +200,23 @@ if (!response.ok) {
         throw new Error("User profile not found.");
       }
 
-      const expenseId = await addExpense({
-        title,
-        amount: Number(amount),
-        category,
-        date,
-        description,
-        companyId: profile.companyId,
-        userId: user.uid,
-        userName: profile.name,
-      });
+      if (!profile.groupId) {
+  throw new Error(
+    "You are not assigned to an employee group. Please contact your admin."
+  );
+}
+
+const expenseId = await addExpense({
+  title,
+  amount: Number(amount),
+  category,
+  date,
+  description,
+  companyId: profile.companyId,
+  userId: user.uid,
+  userName: profile.name,
+  groupId: profile.groupId,
+});
 
       console.log("Expense saved to Firestore:", expenseId);
       alert("Expense submitted successfully!");

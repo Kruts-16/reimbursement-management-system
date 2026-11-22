@@ -10,8 +10,9 @@ import {
   where,
   updateDoc,
 } from "firebase/firestore";
-
+import { auth } from "./config";
 import { db } from "./config";
+
 
 interface ExpenseData {
   title: string;
@@ -22,29 +23,60 @@ interface ExpenseData {
   companyId: string;
   userId: string;
   userName: string;
+  groupId: string;
 }
+
 export async function addExpense(expense: ExpenseData) {
+  // Find the employee's assigned group
+  const groupRef = doc(db, "groups", expense.groupId);
+  const groupSnap = await getDoc(groupRef);
+
+  if (!groupSnap.exists()) {
+    throw new Error("Employee group not found.");
+  }
+
+  const group = groupSnap.data();
+
+  if (group.companyId !== expense.companyId) {
+    throw new Error("Invalid employee group.");
+  }
+
+  if (!group.managerId) {
+    throw new Error("No manager assigned to this group.");
+  }
+
+  if (!Number.isFinite(expense.amount) || expense.amount <= 0) {
+    throw new Error("Please enter a valid expense amount.");
+  }
+
+  // ₹5,000 and above requires admin approval
+  const requiresAdminApproval = expense.amount >= 5000;
+
   const expenseRef = await addDoc(collection(db, "expenses"), {
-  title: expense.title,
-  amount: expense.amount,
-  category: expense.category,
-  date: expense.date,
-  description: expense.description,
-  companyId: expense.companyId,
-  userId: expense.userId,
-  userName: expense.userName,
+    title: expense.title,
+    amount: expense.amount,
+    category: expense.category,
+    date: expense.date,
+    description: expense.description,
 
-  status: "pending",
+    companyId: expense.companyId,
+    userId: expense.userId,
+    userName: expense.userName,
 
-  approvalLevel: 1,
-  totalApprovalLevels: 2,
-  currentApproverRole: "manager",
+    groupId: expense.groupId,
+    assignedManagerId: group.managerId,
 
-  submittedAt: serverTimestamp(),
-});
+    status: "pending",
+    approvalLevel: 1,
+    totalApprovalLevels: requiresAdminApproval ? 2 : 1,
+    currentApproverRole: "manager",
+
+    submittedAt: serverTimestamp(),
+  });
 
   return expenseRef.id;
 }
+
 interface CompanyData {
   name: string;
   createdBy: string;
@@ -152,49 +184,125 @@ export async function getCompanyExpenses(companyId: string) {
   return expenses;
 }
 
+
 export async function updateExpenseStatus(
   expenseId: string,
   status: string
 ) {
+  const user = auth.currentUser;
+
+  if (!user) {
+    throw new Error("Please log in first.");
+  }
+
+  const profile = await getUserProfile(user.uid);
+
+  if (!profile) {
+    throw new Error("User profile not found.");
+  }
+
   const expenseRef = doc(db, "expenses", expenseId);
   const expenseSnap = await getDoc(expenseRef);
 
   if (!expenseSnap.exists()) {
-    throw new Error("Expense not found");
+    throw new Error("Expense not found.");
   }
 
   const expense = expenseSnap.data();
 
+  if (expense.companyId !== profile.companyId) {
+    throw new Error("You cannot access this expense.");
+  }
+
+  if (expense.status !== "pending") {
+    throw new Error("This expense is no longer pending.");
+  }
+
+  const isManager = profile.role === "manager";
+  const isAdmin = profile.role === "admin";
+
   if (status === "rejected") {
+    if (isManager) {
+      if (
+        expense.currentApproverRole !== "manager" ||
+        expense.assignedManagerId !== user.uid
+      ) {
+        throw new Error("This expense is not assigned to you.");
+      }
+    } else if (isAdmin) {
+      if (expense.currentApproverRole !== "admin") {
+        throw new Error("This expense is not awaiting admin approval.");
+      }
+    } else {
+      throw new Error("You are not authorized to reject expenses.");
+    }
+
     await updateDoc(expenseRef, {
       status: "rejected",
+      rejectedBy: user.uid,
       rejectedAt: serverTimestamp(),
     });
+
     return;
   }
 
-  if (status === "approved") {
-    const approvalLevel = expense.approvalLevel || 1;
-    const totalApprovalLevels =
-      expense.totalApprovalLevels || 2;
+  if (status !== "approved") {
+    throw new Error("Invalid approval status.");
+  }
 
-    if (approvalLevel < totalApprovalLevels) {
+  // Manager approval
+  if (isManager) {
+    if (
+      expense.currentApproverRole !== "manager" ||
+      expense.assignedManagerId !== user.uid
+    ) {
+      throw new Error("This expense is not assigned to you.");
+    }
+
+    const requiresAdminApproval = Number(expense.amount) >= 5000;
+
+    if (requiresAdminApproval) {
       await updateDoc(expenseRef, {
-        approvalLevel: approvalLevel + 1,
-        currentApproverRole:
-          approvalLevel + 1 === totalApprovalLevels
-            ? "admin"
-            : "manager",
+        approvalLevel: 2,
+        currentApproverRole: "admin",
+        managerApprovedBy: user.uid,
+        managerApprovedAt: serverTimestamp(),
       });
     } else {
       await updateDoc(expenseRef, {
         status: "approved",
+        approvalLevel: 1,
         currentApproverRole: null,
+        managerApprovedBy: user.uid,
+        managerApprovedAt: serverTimestamp(),
         approvedAt: serverTimestamp(),
       });
     }
+
+    return;
   }
+
+  // Admin final approval
+  if (isAdmin) {
+    if (expense.currentApproverRole !== "admin") {
+      throw new Error("This expense is not awaiting admin approval.");
+    }
+
+    await updateDoc(expenseRef, {
+      status: "approved",
+      approvalLevel: 2,
+      currentApproverRole: null,
+      adminApprovedBy: user.uid,
+      adminApprovedAt: serverTimestamp(),
+      approvedAt: serverTimestamp(),
+    });
+
+    return;
+  }
+
+  throw new Error("You are not authorized to approve expenses.");
 }
+
 
 
 export async function createEmployee(

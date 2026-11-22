@@ -32,12 +32,14 @@ interface Expense {
   approvalLevel?: number;
   totalApprovalLevels?: number;
   currentApproverRole?: string;
+  assignedManagerId?: string;
 }
 
 function ApprovalsPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
 
   async function loadExpenses() {
     try {
@@ -51,17 +53,27 @@ function ApprovalsPage() {
 
       const data = await getCompanyExpenses(profile.companyId);
 
-      const pendingExpenses = (data as Expense[]).filter(
-        (expense) =>
-          expense.status === "pending" &&
-          (expense.currentApproverRole === "admin" ||
-            expense.currentApproverRole === "manager" ||
-            !expense.currentApproverRole)
-      );
+      const pendingExpenses = (data as Expense[]).filter((expense) => {
+        if (expense.status !== "pending") return false;
+
+        if (profile.role === "manager") {
+          return (
+            expense.currentApproverRole === "manager" &&
+            expense.assignedManagerId === user.uid
+          );
+        }
+
+        if (profile.role === "admin") {
+          return expense.currentApproverRole === "admin";
+        }
+
+        return false;
+      });
 
       setExpenses(pendingExpenses);
     } catch (error) {
       console.error("Error loading approvals:", error);
+      setMessage("Could not load approval requests.");
     } finally {
       setLoading(false);
     }
@@ -77,13 +89,24 @@ function ApprovalsPage() {
   ) {
     try {
       setUpdatingId(expenseId);
+      setMessage("");
 
       await updateExpenseStatus(expenseId, status);
-
       await loadExpenses();
+
+      setMessage(
+        status === "approved"
+          ? "Expense approval updated successfully!"
+          : "Expense rejected successfully."
+      );
     } catch (error) {
       console.error("Error updating expense:", error);
-      alert("Could not update expense. Please try again.");
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not update expense."
+      );
     } finally {
       setUpdatingId(null);
     }
@@ -92,6 +115,7 @@ function ApprovalsPage() {
   return (
     <AppLayout>
       <div className="space-y-6 p-8">
+
         <div>
           <h1 className="text-3xl font-semibold text-gray-900">
             Approvals
@@ -101,6 +125,12 @@ function ApprovalsPage() {
             Review and manage pending reimbursement requests.
           </p>
         </div>
+
+        {message && (
+          <div className="rounded-lg border bg-gray-50 p-3 text-sm">
+            {message}
+          </div>
+        )}
 
         <Card>
           <CardHeader>
@@ -123,7 +153,7 @@ function ApprovalsPage() {
                 </h3>
 
                 <p className="mt-1 text-sm text-gray-500">
-                  New reimbursement requests will appear here.
+                  New requests assigned to you will appear here.
                 </p>
               </div>
             ) : (
@@ -134,6 +164,7 @@ function ApprovalsPage() {
                     className="rounded-xl border p-5"
                   >
                     <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+
                       <div className="space-y-2">
                         <div>
                           <h3 className="font-semibold text-gray-900">
@@ -141,8 +172,7 @@ function ApprovalsPage() {
                           </h3>
 
                           <p className="text-sm text-gray-500">
-                            Submitted by{" "}
-                            {expense.userName || "Unknown user"}
+                            Submitted by {expense.userName || "Unknown user"}
                           </p>
                         </div>
 
@@ -158,15 +188,9 @@ function ApprovalsPage() {
                         )}
 
                         <p className="text-sm font-medium text-blue-600">
-                          Approval Level{" "}
-                          {expense.approvalLevel || 1} of{" "}
-                          {expense.totalApprovalLevels || 2}
-                          {" · "}
-                          {(expense.currentApproverRole || "manager")
-                            .charAt(0)
-                            .toUpperCase() +
-                            (expense.currentApproverRole || "manager").slice(1)}
-                          {" approval"}
+                          {Number(expense.amount) >= 5000
+                            ? "Manager + Admin approval"
+                            : "Manager approval only"}
                         </p>
                       </div>
 
@@ -200,6 +224,7 @@ function ApprovalsPage() {
                           </Button>
                         </div>
                       </div>
+
                     </div>
                   </div>
                 ))}
